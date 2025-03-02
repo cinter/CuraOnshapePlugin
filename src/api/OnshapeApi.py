@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class OnshapeApi(QObject):
     """Manager giving access to the required calls to the remote Onshape REST API"""
 
-    API_ROOT = 'https://cad.onshape.com/api/v6'
+    API_ROOT = 'https://cad.onshape.com/api/v10'
     DEFAULT_REQUEST_TIMEOUT = 10  # seconds
     DOWNLOAD_REQUEST_TIMEOUT = 60 # seconds
     QUERY_LIMIT = 20 # This is the default value of the API, make it explicit
