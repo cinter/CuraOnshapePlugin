@@ -38,6 +38,7 @@
         "i18n/onshape.pot",
         "i18n/fr_FR/onshape.po",
         "resources/qml/DocumentsActions.qml",
-        "resources/qml/SearchBar.qml"
+        "resources/qml/SearchBar.qml",
+        "src/data/SearchResult.py"
     ]
 }

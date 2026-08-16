@@ -10,6 +10,7 @@ from typing import Callable, List, TYPE_CHECKING
 from UM.Application import Application
 from UM.TaskManagement.HttpRequestManager import HttpRequestManager
 from UM.TaskManagement.HttpRequestScope import JsonDecoratorScope
+from UM.Logger import Logger
 
 from .ApiAuthScope import ApiAuthScope
 from .AcceptBinaryDataScope import AcceptBinaryDataScope
@@ -30,6 +31,7 @@ class OnshapeApi(QObject):
     API_ROOT = 'https://cad.onshape.com/api/v10'
     DEFAULT_REQUEST_TIMEOUT = 10  # seconds
     DOWNLOAD_REQUEST_TIMEOUT = 60 # seconds
+    SEARCH_REQUEST_TIMEOUT = 20  # seconds
     QUERY_LIMIT = 20 # This is the default value of the API, make it explicit
 
     def __init__(self):
@@ -252,3 +254,52 @@ class OnshapeApi(QObject):
                        callback = response_received,
                        error_callback = on_error,
                        timeout = self.DOWNLOAD_REQUEST_TIMEOUT)
+
+    def _search(self,
+                parent_id: str,
+                search_query: str,
+                on_finished: Callable[[List['DocumentsTreeNode']], None],
+                on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
+                results: list,
+                offset: int) -> None:
+        """
+        Retrieves the elements matching the search query, under the given parent. This is done multiple times
+        because each call retrieves a sublist of the total, hence the given offset.
+        """
+
+        url = QUrl(f'{self.API_ROOT}/documents/search')
+
+        request_body = {}
+        request_body["limit"] = self.QUERY_LIMIT
+        request_body["offset"] = offset
+        request_body["rawQuery"] = search_query
+        request_body["parentId"] = parent_id
+
+        def response_received(reply: 'QNetworkReply'):
+            data_json = self._http.readJSON(reply)
+            new_results = results + data_json['items']
+            Logger.debug(f"I now have {len(new_results)} items")
+
+            if data_json['next'] is not None:
+                Logger.debug(data_json['next'])
+                self._search(parent_id, search_query, on_finished, on_error, new_results, offset + self.QUERY_LIMIT)
+            else:
+                Logger.debug(f"Got {len(new_results)} matching items")
+
+        Logger.debug(f"Process search request {json.dumps(request_body)}")
+        self._http.post(url.toString(),
+                        data = json.dumps(request_body).encode("utf-8"),
+                        scope = self._json_scope,
+                        callback = response_received,
+                        error_callback = on_error,
+                        timeout = self.SEARCH_REQUEST_TIMEOUT)
+
+
+    def search(self,
+               parent_id: str,
+               search_query: str,
+               on_finished: Callable[[List['DocumentsTreeNode']], None],
+               on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        """Lists all the elements matching the search query, under the given parent"""
+
+        self._search(parent_id, search_query, on_finished, on_error, [], 0)

@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, List, Optional
 from PyQt6.QtCore import pyqtProperty, pyqtSignal, pyqtSlot, QObject
 from PyQt6.QtNetwork import QNetworkRequest
 
+from ..data.DocumentsTreeNode import DocumentsTreeNode
 from ..data.Root import Root
+from ..data.SearchResult import SearchResult
 
 if TYPE_CHECKING:
     from PyQt6.QtNetwork import QNetworkReply
-    from ..data.DocumentsTreeNode import DocumentsTreeNode
     from ..api.OnshapeApi import OnshapeApi
     from ..DocumentsItem import DocumentsItem
 
@@ -24,6 +25,7 @@ class DocumentsModel(QObject):
         self._items: List["DocumentsItem"] = []
         self._path: List[str] = path + [self._node.element.name]
         self._load_error: Optional[str] = None
+        self._search_model: Optional["DocumentsModel"] = None
 
         if self.loaded:
             self._updateItems()
@@ -104,3 +106,8 @@ class DocumentsModel(QObject):
     @pyqtProperty(list, notify = selectedItemsChanged)
     def selectedItems(self) -> List["DocumentsItem"]:
         return [item for item in self._items if item.selected]
+
+    @pyqtSlot(str, result = QObject)
+    def searchModel(self, search_query: str) -> "DocumentsModel":
+        self._search_model = DocumentsModel(DocumentsTreeNode(SearchResult(search_query, self._node.getId())), self._api, self._path)
+        return self._search_model

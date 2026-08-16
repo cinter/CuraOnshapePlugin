@@ -69,7 +69,6 @@ class OnshapeController(QObject):
         if file_path in self._temp_files:
             os.remove(file_path)
             self._temp_files.remove(file_path)
-            print("File removed ", file_path)
 
     def _onSceneChanged(self, *args) -> None:
         for changed_node in args:

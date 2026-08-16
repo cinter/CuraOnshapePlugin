@@ -34,7 +34,6 @@ class OnshapeFileProvider(FileProvider):
 
         dir_path = os.path.dirname(__file__)
         dir_path = os.path.join(dir_path, '..')
-        print(os.path.abspath(dir_path))
         Resources.addSearchPath(os.path.abspath(dir_path))
 
         if i18n_catalog.hasTranslationLoaded():

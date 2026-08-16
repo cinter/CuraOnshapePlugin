@@ -86,6 +86,19 @@ Item
 
     function doSearch()
     {
-        console.debug("Search " + filter.text)
+        console.debug("Search " + filter.text + " " + documentsListStack.currentItem.documentsModel)
+
+        var search_model = documentsListStack.currentItem.documentsModel.searchModel(filter.text)
+        console.debug(search_model)
+        documentsListStack.push("DocumentsView.qml", {"documentsModel": search_model})
+
+        // if(modelData.hasChildren)
+        // {
+        //     documentsListStack.push("DocumentsView.qml", {"documentsModel": modelData.childModel})
+        // }
+        // else if(modelData.isDownloadable)
+        // {
+        //     modelData.selected = !modelData.selected
+        // }
     }
 }

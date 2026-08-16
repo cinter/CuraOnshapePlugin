@@ -12,7 +12,11 @@ if TYPE_CHECKING:
     from .DocumentsTreeNode import DocumentsTreeNode
 
 class BaseElement:
-    """Base class for the elements retrieved from the Onshape API"""
+    """
+    Base class for the elements retrieved from the Onshape API
+    The elements are organized as such:
+    Root > (Folder) > Document > Workspace > Tab (Part Studio) > Part
+    """
 
     regex_thumbnail_size = re.compile('^([0-9]+)x([0-9]+)$')
 
