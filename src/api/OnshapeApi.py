@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import functools
 
 from PyQt6.QtCore import QObject, pyqtSlot, QUrlQuery, QUrl
 
@@ -86,6 +87,21 @@ class OnshapeApi(QObject):
         else:
             on_finished(storage.getTree().children)
 
+    def _onListDocumentsFinished(self,
+                                 reply: 'QNetworkReply',
+                                 on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
+                                 on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        data_json = json.loads(bytes(reply.readAll()).decode())
+        storage = UserStorage()
+        storage.appendDocuments(data_json['items'])
+        has_more = data_json['next'] is not None
+        document_count = len(data_json['items'])
+
+        def folders_finished(children: List['DocumentsTreeNode']):
+            on_finished(children, has_more, document_count)
+
+        self._getFolders(folders_finished, on_error, storage)
+
     def listDocuments(self,
                       offset: int,
                       on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
@@ -108,21 +124,9 @@ class OnshapeApi(QObject):
 
         url.setQuery(query)
 
-        def response_received(reply: 'QNetworkReply'):
-            data_json = json.loads(bytes(reply.readAll()).decode())
-            storage = UserStorage()
-            storage.appendDocuments(data_json['items'])
-            has_more = data_json['next'] is not None
-            document_count = len(data_json['items'])
-
-            def folders_finished(children: List['DocumentsTreeNode']):
-                on_finished(children, has_more, document_count)
-
-            self._getFolders(folders_finished, on_error, storage)
-
         self._http.get(url.toString(),
                        scope = self._json_scope,
-                       callback = response_received,
+                       callback = functools.partial(self._onListDocumentsFinished, on_finished=on_finished, on_error=on_error),
                        error_callback = on_error,
                        timeout = self.DEFAULT_REQUEST_TIMEOUT)
 
@@ -151,25 +155,11 @@ class OnshapeApi(QObject):
         if offset > 0:
             request_body["offset"] = offset
 
-        def response_received(reply: 'QNetworkReply'):
-            data_json = json.loads(bytes(reply.readAll()).decode())
-            Logger.debug("SEARCH RESULT")
-            Logger.debug(str(data_json))
-            storage = UserStorage()
-            storage.appendDocuments(data_json['items'])
-            has_more = data_json['next'] is not None
-            document_count = len(data_json['items'])
-
-            def folders_finished(children: List['DocumentsTreeNode']):
-                on_finished(children, has_more, document_count)
-
-            self._getFolders(folders_finished, on_error, storage)
-
         Logger.debug(f"Process search request {json.dumps(request_body)}")
         self._http.post(url.toString(),
                         data = json.dumps(request_body).encode("utf-8"),
                         scope = self._json_scope,
-                        callback = response_received,
+                        callback = functools.partial(self._onListDocumentsFinished, on_finished=on_finished, on_error=on_error),
                         error_callback = on_error,
                         timeout = self.SEARCH_REQUEST_TIMEOUT)
 
