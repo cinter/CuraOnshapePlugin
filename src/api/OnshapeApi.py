@@ -5,7 +5,7 @@ import tempfile
 
 from PyQt6.QtCore import QObject, pyqtSlot, QUrlQuery, QUrl
 
-from typing import Callable, List, TYPE_CHECKING
+from typing import Callable, List, Dict, TYPE_CHECKING
 
 from UM.Application import Application
 from UM.TaskManagement.HttpRequestManager import HttpRequestManager
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 class OnshapeApi(QObject):
     """Manager giving access to the required calls to the remote Onshape REST API"""
 
-    API_ROOT = 'https://cad.onshape.com/api/v10'
+    API_ROOT = 'https://cad.onshape.com/api/v17'
     DEFAULT_REQUEST_TIMEOUT = 10  # seconds
     DOWNLOAD_REQUEST_TIMEOUT = 60 # seconds
     SEARCH_REQUEST_TIMEOUT = 20  # seconds
@@ -40,11 +40,16 @@ class OnshapeApi(QObject):
         self._auth_scope: 'ApiAuthScope' = ApiAuthScope()
         self._json_scope: 'JsonDecoratorScope' = JsonDecoratorScope(self._auth_scope)
         self._binary_scope: 'AcceptBinaryDataScope' = AcceptBinaryDataScope(self._auth_scope)
+        self._folder_cache: Dict[str, Dict] = {}
 
     @pyqtSlot(str)
     def setToken(self, token: str) -> None:
         """Sets the authentication token, which is required to make API calls"""
         self._auth_scope.setToken(token)
+
+    def clearFolderCache(self) -> None:
+        """Clears the folder cache; should be called when the document list is refreshed"""
+        self._folder_cache.clear()
 
     def _getFolders(self,
                     on_finished: Callable[[List['DocumentsTreeNode']], None],
@@ -53,35 +58,45 @@ class OnshapeApi(QObject):
         """
         Retrieves the next required folder content, which is done recursively and dynamically
         because we don't know in advance which subfolders are existing and non-empty.
+        Already-fetched folder data is taken from the cache to avoid redundant API calls across
+        page loads.
         """
 
         def response_received(reply: 'QNetworkReply'):
             data_json = json.loads(bytes(reply.readAll()).decode())
+            self._folder_cache[data_json['id']] = data_json
             storage.appendFolder(data_json)
             self._getFolders(on_finished, on_error, storage)
 
         next_folder = storage.getNextFolderToRetrieve()
 
         if next_folder is not None:
-            url = f'{self.API_ROOT}/folders/{next_folder}'
+            if next_folder in self._folder_cache:
+                # Reuse cached folder data without an extra API call
+                storage.appendFolder(self._folder_cache[next_folder])
+                self._getFolders(on_finished, on_error, storage)
+            else:
+                url = f'{self.API_ROOT}/folders/{next_folder}'
 
-            self._http.get(url,
-                           scope = self._json_scope,
-                           callback = response_received,
-                           error_callback = on_error,
-                           timeout = self.DEFAULT_REQUEST_TIMEOUT)
+                self._http.get(url,
+                               scope = self._json_scope,
+                               callback = response_received,
+                               error_callback = on_error,
+                               timeout = self.DEFAULT_REQUEST_TIMEOUT)
         else:
             on_finished(storage.getTree().children)
 
-    def _listDocuments(self,
-                       on_finished: Callable[[List['DocumentsTreeNode']], None],
-                       on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
-                       storage: 'UserStorage',
-                       offset: int) -> None:
+    def listDocuments(self,
+                      offset: int,
+                      on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
+                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
         """
-        Retrieves the list of root documents in the user storage. This is done multiple times
-        because each call retrieves a sublist of the total, hence the given offset. Once the
-        documents are complete, we also start receiving the folders tree.
+        Retrieves a single page of the root documents in the user storage, starting at the given
+        offset. The finished callback receives:
+        - the list of tree nodes for the current page,
+        - a boolean indicating whether more pages are available,
+        - the count of documents fetched (to be used as the next page offset).
+        Folders are resolved and injected into the tree as part of the same request.
         """
 
         url = QUrl(f'{self.API_ROOT}/documents')
@@ -95,12 +110,15 @@ class OnshapeApi(QObject):
 
         def response_received(reply: 'QNetworkReply'):
             data_json = json.loads(bytes(reply.readAll()).decode())
+            storage = UserStorage()
             storage.appendDocuments(data_json['items'])
+            has_more = data_json['next'] is not None
+            document_count = len(data_json['items'])
 
-            if data_json['next'] is not None:
-                self._listDocuments(on_finished, on_error, storage, offset + self.QUERY_LIMIT)
-            else:
-                self._getFolders(on_finished, on_error, storage)
+            def folders_finished(children: List['DocumentsTreeNode']):
+                on_finished(children, has_more, document_count)
+
+            self._getFolders(folders_finished, on_error, storage)
 
         self._http.get(url.toString(),
                        scope = self._json_scope,
@@ -108,12 +126,52 @@ class OnshapeApi(QObject):
                        error_callback = on_error,
                        timeout = self.DEFAULT_REQUEST_TIMEOUT)
 
-    def listDocuments(self,
-                      on_finished: Callable[[List['DocumentsTreeNode']], None],
-                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
-        """Lists the root documents and the whole folder tree present in the user storage"""
-        storage = UserStorage()
-        self._listDocuments(on_finished, on_error, storage, 0)
+    def search(self,
+               parent_id: str,
+               search_query: str,
+               on_finished: Callable[[List['DocumentsTreeNode']], None],
+               on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
+               offset: int) -> None:
+        """
+        Retrieves a single page of the found documents in the user storage, starting at the given
+        offset. The finished callback receives:
+        - the list of tree nodes for the current page,
+        - a boolean indicating whether more pages are available,
+        - the count of documents fetched (to be used as the next page offset).
+        Folders are resolved and injected into the tree as part of the same request.
+        """
+
+        url = QUrl(f'{self.API_ROOT}/documents/search')
+
+        request_body = {}
+        request_body["rawQuery"] = search_query
+        request_body["parentId"] = parent_id
+        request_body["documentFilter"] = 0
+        request_body["limit"] = self.QUERY_LIMIT
+        if offset > 0:
+            request_body["offset"] = offset
+
+        def response_received(reply: 'QNetworkReply'):
+            data_json = json.loads(bytes(reply.readAll()).decode())
+            Logger.debug("SEARCH RESULT")
+            Logger.debug(str(data_json))
+            storage = UserStorage()
+            storage.appendDocuments(data_json['items'])
+            has_more = data_json['next'] is not None
+            document_count = len(data_json['items'])
+
+            def folders_finished(children: List['DocumentsTreeNode']):
+                on_finished(children, has_more, document_count)
+
+            self._getFolders(folders_finished, on_error, storage)
+
+        Logger.debug(f"Process search request {json.dumps(request_body)}")
+        self._http.post(url.toString(),
+                        data = json.dumps(request_body).encode("utf-8"),
+                        scope = self._json_scope,
+                        callback = response_received,
+                        error_callback = on_error,
+                        timeout = self.SEARCH_REQUEST_TIMEOUT)
 
     def listWorkspaces(self,
                        document_id: str,
@@ -254,52 +312,3 @@ class OnshapeApi(QObject):
                        callback = response_received,
                        error_callback = on_error,
                        timeout = self.DOWNLOAD_REQUEST_TIMEOUT)
-
-    def _search(self,
-                parent_id: str,
-                search_query: str,
-                on_finished: Callable[[List['DocumentsTreeNode']], None],
-                on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
-                results: list,
-                offset: int) -> None:
-        """
-        Retrieves the elements matching the search query, under the given parent. This is done multiple times
-        because each call retrieves a sublist of the total, hence the given offset.
-        """
-
-        url = QUrl(f'{self.API_ROOT}/documents/search')
-
-        request_body = {}
-        request_body["limit"] = self.QUERY_LIMIT
-        request_body["offset"] = offset
-        request_body["rawQuery"] = search_query
-        request_body["parentId"] = parent_id
-
-        def response_received(reply: 'QNetworkReply'):
-            data_json = self._http.readJSON(reply)
-            new_results = results + data_json['items']
-            Logger.debug(f"I now have {len(new_results)} items")
-
-            if data_json['next'] is not None:
-                Logger.debug(data_json['next'])
-                self._search(parent_id, search_query, on_finished, on_error, new_results, offset + self.QUERY_LIMIT)
-            else:
-                Logger.debug(f"Got {len(new_results)} matching items")
-
-        Logger.debug(f"Process search request {json.dumps(request_body)}")
-        self._http.post(url.toString(),
-                        data = json.dumps(request_body).encode("utf-8"),
-                        scope = self._json_scope,
-                        callback = response_received,
-                        error_callback = on_error,
-                        timeout = self.SEARCH_REQUEST_TIMEOUT)
-
-
-    def search(self,
-               parent_id: str,
-               search_query: str,
-               on_finished: Callable[[List['DocumentsTreeNode']], None],
-               on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
-        """Lists all the elements matching the search query, under the given parent"""
-
-        self._search(parent_id, search_query, on_finished, on_error, [], 0)

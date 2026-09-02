@@ -1,9 +1,8 @@
 # Copyright (c) 2025 Erwan MATHIEU
 
-from typing import TYPE_CHECKING, Callable, List
+from typing import TYPE_CHECKING, Callable, List, Optional
 
 from UM.i18n import i18nCatalog
-from UM.Logger import Logger
 
 from .BaseElement import BaseElement
 
@@ -23,7 +22,8 @@ class SearchResult(BaseElement):
 
     def _loadChildren(self,
                       api: 'OnshapeApi',
-                      on_finished: Callable[[List['DocumentsTreeNode']], None],
-                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
-        Logger.debug("go search !!!")
-        api.search(self._parent_id, self._search_query, on_finished, on_error)
+                      on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
+                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
+                      offset: Optional[int] = None) -> None:
+        print("go search !!!", self._parent_id, self._search_query, offset)
+        api.search(self._parent_id, self._search_query, on_finished, on_error, 0 if offset is None else offset)
