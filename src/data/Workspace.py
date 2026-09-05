@@ -2,7 +2,6 @@
 
 from typing import TYPE_CHECKING, Callable, List, Dict, Any, Optional
 
-from datetime import datetime
 import os
 import pathlib
 
@@ -24,19 +23,12 @@ class Workspace(BaseElement):
         icon_path = os.path.join(dir, '..', '..', 'resources', 'images', 'Workspace.svg')
         icon_url = QUrl.fromLocalFile(icon_path).toString()
 
-        super().__init__(data['name'],
-                         data['id'],
-                         None,
-                         datetime.fromisoformat(data['modifiedAt']),
-                         data['lastModifier']['name'],
-                         icon = icon_url,
-                         allow_single_child_shortcut = True)
+        super().__init__(data, icon = icon_url, allow_single_child_shortcut = True)
 
         self._document_id = data['documentId']
 
     def _loadChildren(self,
                       api: 'OnshapeApi',
-                      on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
-                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
-                      offset: Optional[int] = None):
-        api.listTabs(self._document_id, self.id, lambda children: on_finished(children, False, 0), on_error)
+                      on_finished: Callable[[List['DocumentsTreeNode'], Optional[str]], None],
+                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]):
+        api.listTabs(self._document_id, self.id, on_finished, on_error)

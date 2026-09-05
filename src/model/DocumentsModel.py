@@ -27,9 +27,9 @@ class DocumentsModel(QAbstractListModel):
         self._path: List[str] = path + [self._node.element.name]
         self._load_error: Optional[str] = None
         self._search_model: Optional["DocumentsModel"] = None
-        self._has_more_pages: bool = False
         self._is_loading_next_page: bool = False
-        self._next_page_offset: int = 0
+        self._url_load_next_page: Optional[str] = None
+
 
         if self.loaded:
             self._updateItems()
@@ -100,11 +100,11 @@ class DocumentsModel(QAbstractListModel):
 
     @pyqtProperty(bool, notify = hasMorePagesChanged)
     def hasMorePages(self) -> bool:
-        return self._has_more_pages
+        return self._url_load_next_page is not None
 
-    def _setHasMorePages(self, value: bool) -> None:
-        if value != self._has_more_pages:
-            self._has_more_pages = value
+    def _setUrlLoadNextPage(self, url_load_next_page: Optional[str]):
+        if url_load_next_page != self._url_load_next_page:
+            self._url_load_next_page = url_load_next_page
             self.hasMorePagesChanged.emit()
 
     isLoadingNextPageChanged = pyqtSignal()
@@ -120,11 +120,10 @@ class DocumentsModel(QAbstractListModel):
 
     @pyqtSlot()
     def load(self) -> None:
-        def on_finished(children: List["DocumentsTreeNode"], has_more: bool, document_count: int):
+        def on_finished(children: List["DocumentsTreeNode"], url_load_next_page: Optional[str]):
             self._node.setChildren(children)
-            self._next_page_offset = document_count
+            self._setUrlLoadNextPage(url_load_next_page)
             self.loadedChanged.emit()
-            self._setHasMorePages(has_more)
             self._updateItems()
 
         def on_error(request: "QNetworkReply", error: "QNetworkReply.NetworkError"):
@@ -140,18 +139,17 @@ class DocumentsModel(QAbstractListModel):
     @pyqtSlot()
     def loadNextPage(self) -> None:
         """Loads the next page of items and appends them to the existing list"""
-        if not self._has_more_pages or self._is_loading_next_page:
+        if self._url_load_next_page is None or self._is_loading_next_page:
             return
 
         self._setIsLoadingNextPage(True)
 
-        def on_finished(new_children: List["DocumentsTreeNode"], has_more: bool, document_count: int):
+        def on_finished(new_children: List["DocumentsTreeNode"], url_load_next_page: Optional[str]):
             for child in new_children:
                 self._node.addChild(child)
 
-            self._next_page_offset += document_count
+            self._setUrlLoadNextPage(url_load_next_page)
             self._setIsLoadingNextPage(False)
-            self._setHasMorePages(has_more)
             self._appendItems(new_children)
 
         def on_error(request: "QNetworkReply", error: "QNetworkReply.NetworkError"):
@@ -159,7 +157,7 @@ class DocumentsModel(QAbstractListModel):
             self._load_error = request.errorString() + bytes(request.readAll()).decode()
             self.errorChanged.emit()
 
-        self._node.element.loadChildren(self._api, on_finished, on_error, self._next_page_offset)
+        self._api.loadElements(self._url_load_next_page, on_finished, on_error)
 
     @pyqtProperty(bool, constant = True)
     def refreshable(self) -> bool:
@@ -172,7 +170,7 @@ class DocumentsModel(QAbstractListModel):
         self._next_page_offset = 0
         self.endResetModel()
 
-        self._setHasMorePages(False)
+        self._setUrlLoadNextPage(None)
         self._setIsLoadingNextPage(False)
 
         self._load_error = None
