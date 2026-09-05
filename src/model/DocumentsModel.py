@@ -159,10 +159,6 @@ class DocumentsModel(QAbstractListModel):
 
         self._api.loadElements(self._url_load_next_page, on_finished, on_error)
 
-    @pyqtProperty(bool, constant = True)
-    def refreshable(self) -> bool:
-        return self._node.element.is_refreshable
-
     def clear(self) -> None:
         self.beginResetModel()
         self._items = []
