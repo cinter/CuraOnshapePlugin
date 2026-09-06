@@ -3,31 +3,38 @@
 import re
 from typing import TYPE_CHECKING, Optional, Callable, List, Dict, Any
 
-if TYPE_CHECKING:
-    from datetime import datetime
+from datetime import datetime
 
+from UM.Application import Application
+
+if TYPE_CHECKING:
     from PyQt6.QtNetwork import QNetworkReply
 
     from ..api.OnshapeApi import OnshapeApi
     from .DocumentsTreeNode import DocumentsTreeNode
 
+
 class BaseElement:
-    """Base class for the elements retrieved from the Onshape API"""
+    """
+    Base class for the elements retrieved from the Onshape API
+    The elements are organized as such:
+    Root > (Folder) > Document > Workspace > Tab (Part Studio) > Part
+    """
 
     regex_thumbnail_size = re.compile('^([0-9]+)x([0-9]+)$')
 
     def __init__(self,
-                 name: str,
-                 id: str,
+                 data: Dict[str, Any],
+                 name: str = None,
+                 id: str = None,
                  short_desc: Optional[str] = None,
                  last_modified_date: Optional['datetime'] = None,
                  last_modified_by: Optional[str] = None,
-                 thumbnail_url: Optional[str] = None,
                  icon: Optional[str] = None,
                  has_children: bool = True,
                  is_downloadable: bool = False,
                  allow_single_child_shortcut: bool = False,
-                 is_refreshable: bool = True):
+                 settable_as_default: bool = False):
         """
         Base constructor
 
@@ -38,58 +45,63 @@ class BaseElement:
         :param last_modified_by: Name of the user at the origin of the last modification
         :param thumbnail_url: Remote URL to an image of the object
         :param icon: Local URL to an icon of the object
-        :param has_children: Indicates whether the object may have children, or if it is a leaf
-                             object in the storage tree
-        :param is_downloadable: Indicates whether this object may be downloaded, or is just
-                                a container
-        :param allow_single_child_shortcut: Indicates whether this object may be hidden in case it
-                                            has a single child, in which case we will directly
-                                            navigate to it
+        :param has_children: Indicates whether the object may have children, or if it is a leaf object in the storage tree
+        :param is_downloadable: Indicates whether this object may be downloaded, or is just a container
+        :param allow_single_child_shortcut: Indicates whether this object may be hidden in case it has a single child, in which case we will
+                                            directly navigate to it
+        :param settable_as_default: Indicates whether this object can be set as default when loading the storages
         """
 
-        self.name: str = name
-        self.id: str = id
-        self.short_desc: Optional[str] = short_desc
-        self.last_modified_date: Optional['datetime'] = last_modified_date
-        self.last_modified_by: Optional[str] = last_modified_by
-        self.thumbnail_url: Optional[str] = thumbnail_url
+        self.name: str = data['name'] if name is None and data is not None else name
+        self.id: str = data['id'] if id is None and data is not None and 'id' in data else id
+        self.short_desc: Optional[str] = (data['owner']['name'] if ('owner' in data and data['owner'] is not None) else None) if short_desc is None and data is not None else short_desc
+        self.last_modified_date: Optional['datetime'] = (datetime.fromisoformat(data['modifiedAt']) if ('modifiedAt' in data and data['modifiedAt'] is not None) else None) if last_modified_date is None and data is not None else last_modified_date
+        self.last_modified_by: Optional[str] = (data['modifiedBy']['name'] if ('modifiedBy' in data and data['modifiedBy'] is not None) else None) if last_modified_by is None and data is not None else last_modified_by
+        self.thumbnail_url: Optional[str] = (BaseElement._findThumbnailUrl(data['thumbnailInfo']['sizes']) if ('thumbnailInfo' in data and data['thumbnailInfo'] is not None) else BaseElement._findThumbnailUrl(data['thumbnail']['sizes']) if ('thumbnail' in data and data['thumbnail'] is not None) else None) if data is not None else None
+        self.children_url: Optional[str] = (data['treeHref'] if ('treeHref' in data and data['treeHref'] is not None) else data['href'] if 'href' in data else None) if data is not None else None
         self.icon: Optional[str] = icon
         self.has_children: bool = has_children
         self.is_downloadable: bool = is_downloadable
+        self.settable_as_default = settable_as_default
         self._allow_single_child_shortcut: bool = allow_single_child_shortcut
-        self.is_refreshable: bool = is_refreshable
+
+    def setAsDefault(self):
+        if not self.settable_as_default:
+            raise RuntimeError('Element is not settable_as_default')
+
+        Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage_name', self.name)
+        Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage_url', self.children_url)
 
     def loadChildren(self,
                      api: 'OnshapeApi',
-                     on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
-                     on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
-                     offset: Optional[int] = None) -> None:
+                     on_finished: Callable[[List['DocumentsTreeNode'], Optional[str]], None],
+                     on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
         """Starts loading the children of the current object, and immediatly start loading the child
            in case there is a single one and we allow for shortcutting
 
         :param api The API object to be used to load the children
-        :param on_finished Callback function called on success. Receives (children, has_more, document_count).
+        :param on_finished Callback function called on success. Receives (children, url_load_next_page).
         :param on_error Callback function called on communication error
-        :param offset The offset to start loading the pages children, or None to load the first (or all of the) children
         """
-        def shortcut_callback(children: List['DocumentsTreeNode'], has_more: bool, document_count: int):
-            if len(children) == 1 and offset is None:
+        def shortcut_callback(children: List['DocumentsTreeNode'], url_load_next_page: Optional[str]):
+            if len(children) == 1:
                 children[0].element.loadChildren(api, on_finished, on_error)
             else:
-                on_finished(children, has_more, document_count)
+                on_finished(children, url_load_next_page)
 
         self._loadChildren(api,
                            shortcut_callback if self._allow_single_child_shortcut else on_finished,
-                           on_error,
-                           offset)
+                           on_error)
 
     def _loadChildren(self,
                       api: 'OnshapeApi',
-                      on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
-                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
-                      offset: Optional[int] = None) -> None:
-        """Method to be overridden by child classes to actually start loading the children"""
-        return NotImplementedError(f'Children of {self.__class__} are not to be loaded')
+                      on_finished: Callable[[List['DocumentsTreeNode'], Optional[str]], None],
+                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        """Loads the children of this element"""
+        if self.children_url is not None:
+            api.loadElements(self.children_url, on_finished, on_error)
+        else:
+            raise RuntimeError('Element has no children_url and no custom method to load children')
 
     def hasThumbnail(self) -> bool:
         return self.thumbnail_url is not None
