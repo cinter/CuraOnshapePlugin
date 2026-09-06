@@ -62,9 +62,19 @@ Window
                 Layout.fillHeight: true
                 Layout.fillWidth: true
 
-                initialItem: DocumentsView
+                Component
                 {
-                    documentsModel: controller.documentsModel
+                    id: initialItemsComponent
+                    DocumentsView { }
+                }
+
+                Component.onCompleted:
+                {
+                    push(initialItemsComponent.createObject(documentsListStack, {"documentsModel": controller.rootDocumentsModel}))
+                    if(controller.defaultDocumentsModel !== controller.rootDocumentsModel)
+                    {
+                        push(initialItemsComponent.createObject(documentsListStack, {"documentsModel": controller.defaultDocumentsModel}))
+                    }
                 }
             }
 

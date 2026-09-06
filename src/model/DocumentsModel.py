@@ -30,10 +30,10 @@ class DocumentsModel(QAbstractListModel):
         self._is_loading_next_page: bool = False
         self._url_load_next_page: Optional[str] = None
 
-
         if self.loaded:
             self._updateItems()
 
+    @pyqtSlot()
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         if parent.isValid():
             return 0

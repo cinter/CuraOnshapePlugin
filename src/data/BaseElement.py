@@ -5,11 +5,14 @@ from typing import TYPE_CHECKING, Optional, Callable, List, Dict, Any
 
 from datetime import datetime
 
+from UM.Application import Application
+
 if TYPE_CHECKING:
     from PyQt6.QtNetwork import QNetworkReply
 
     from ..api.OnshapeApi import OnshapeApi
     from .DocumentsTreeNode import DocumentsTreeNode
+
 
 class BaseElement:
     """
@@ -30,7 +33,8 @@ class BaseElement:
                  icon: Optional[str] = None,
                  has_children: bool = True,
                  is_downloadable: bool = False,
-                 allow_single_child_shortcut: bool = False):
+                 allow_single_child_shortcut: bool = False,
+                 settable_as_default: bool = False):
         """
         Base constructor
 
@@ -41,17 +45,15 @@ class BaseElement:
         :param last_modified_by: Name of the user at the origin of the last modification
         :param thumbnail_url: Remote URL to an image of the object
         :param icon: Local URL to an icon of the object
-        :param has_children: Indicates whether the object may have children, or if it is a leaf
-                             object in the storage tree
-        :param is_downloadable: Indicates whether this object may be downloaded, or is just
-                                a container
-        :param allow_single_child_shortcut: Indicates whether this object may be hidden in case it
-                                            has a single child, in which case we will directly
-                                            navigate to it
+        :param has_children: Indicates whether the object may have children, or if it is a leaf object in the storage tree
+        :param is_downloadable: Indicates whether this object may be downloaded, or is just a container
+        :param allow_single_child_shortcut: Indicates whether this object may be hidden in case it has a single child, in which case we will
+                                            directly navigate to it
+        :param settable_as_default: Indicates whether this object can be set as default when loading the storages
         """
 
         self.name: str = data['name'] if name is None and data is not None else name
-        self.id: str = data['id'] if id is None and data is not None else id
+        self.id: str = data['id'] if id is None and data is not None and 'id' in data else id
         self.short_desc: Optional[str] = (data['owner']['name'] if ('owner' in data and data['owner'] is not None) else None) if short_desc is None and data is not None else short_desc
         self.last_modified_date: Optional['datetime'] = (datetime.fromisoformat(data['modifiedAt']) if ('modifiedAt' in data and data['modifiedAt'] is not None) else None) if last_modified_date is None and data is not None else last_modified_date
         self.last_modified_by: Optional[str] = (data['modifiedBy']['name'] if ('modifiedBy' in data and data['modifiedBy'] is not None) else None) if last_modified_by is None and data is not None else last_modified_by
@@ -60,7 +62,15 @@ class BaseElement:
         self.icon: Optional[str] = icon
         self.has_children: bool = has_children
         self.is_downloadable: bool = is_downloadable
+        self.settable_as_default = settable_as_default
         self._allow_single_child_shortcut: bool = allow_single_child_shortcut
+
+    def setAsDefault(self):
+        if not self.settable_as_default:
+            raise RuntimeError('Element is not settable_as_default')
+
+        Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage_name', self.name)
+        Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage_url', self.children_url)
 
     def loadChildren(self,
                      api: 'OnshapeApi',
@@ -91,7 +101,7 @@ class BaseElement:
         if self.children_url is not None:
             api.loadElements(self.children_url, on_finished, on_error)
         else:
-            raise RuntimeError(f'Element has no children_url and no custom method to load children')
+            raise RuntimeError('Element has no children_url and no custom method to load children')
 
     def hasThumbnail(self) -> bool:
         return self.thumbnail_url is not None
