@@ -16,15 +16,6 @@ Item
 
     UM.I18nCatalog{id: catalog; name:"onshape"}
 
-    Timer
-    {
-        id: settingsSearchTimer
-        onTriggered: root.doSearch()
-        interval: 500
-        running: false
-        repeat: false
-    }
-
     Cura.TextField
     {
         id: filter
@@ -53,11 +44,9 @@ Item
             color: UM.Theme.getColor("text")
         }
 
-        onTextChanged: settingsSearchTimer.restart()
-
-        onEditingFinished: root.doSearch()
-
         Keys.onEscapePressed: filter.text = ""
+
+        onAccepted: root.doSearch()
     }
 
     UM.SimpleButton
@@ -80,7 +69,6 @@ Item
         {
             filter.text = ""
             filter.forceActiveFocus()
-            root.doSearch()
         }
     }
 
@@ -91,14 +79,5 @@ Item
         var search_model = documentsListStack.currentItem.documentsModel.searchModel(filter.text)
         console.debug(search_model)
         documentsListStack.push("DocumentsView.qml", {"documentsModel": search_model})
-
-        // if(modelData.hasChildren)
-        // {
-        //     documentsListStack.push("DocumentsView.qml", {"documentsModel": modelData.childModel})
-        // }
-        // else if(modelData.isDownloadable)
-        // {
-        //     modelData.selected = !modelData.selected
-        // }
     }
 }

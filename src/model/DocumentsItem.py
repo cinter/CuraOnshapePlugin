@@ -52,10 +52,7 @@ class DocumentsItem(QObject):
             else:
                 if not self._thumbnail_downloaded:
                     self._thumbnail_downloaded = True
-                    if self.element.thumbnail_url is not None:
-                        self._api.loadThumbnail(self.element.thumbnail_url,
-                                                self._onThumbnailReceived,
-                                                self._onThumbnailError)
+                    self.element.loadThumbnail(self._api, self._onThumbnailReceived, self._onThumbnailError)
                 return None
         else:
             return self.element.icon

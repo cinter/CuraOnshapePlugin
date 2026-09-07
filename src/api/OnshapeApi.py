@@ -34,9 +34,9 @@ class OnshapeApi(QObject):
     """Manager giving access to the required calls to the remote Onshape REST API"""
 
     API_ROOT = 'https://cad.onshape.com/api/v14' # Stay with version 14, version 17 gives a different result for /globaltreenodes
-    DEFAULT_REQUEST_TIMEOUT = 10  # seconds
+    DEFAULT_REQUEST_TIMEOUT = 20  # seconds
     DOWNLOAD_REQUEST_TIMEOUT = 60 # seconds
-    SEARCH_REQUEST_TIMEOUT = 20  # seconds
+    THUMBNAIL_SIZE = '300x300'
 
     def __init__(self):
         super().__init__()
@@ -55,26 +55,10 @@ class OnshapeApi(QObject):
         """Clears the folder cache; should be called when the document list is refreshed"""
         self._folder_cache.clear()
 
-    def _onListDocumentsFinished(self,
-                                 reply: 'QNetworkReply',
-                                 on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
-                                 on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
-        data_json = bytes(reply.readAll()).decode()
-        Logger.debug(str(data_json))
-        data_json = json.loads(data_json)
-        storage = UserStorage()
-        storage.appendDocuments(data_json['items'])
-        has_more = data_json['next'] is not None
-        document_count = len(data_json['items'])
-
-        def folders_finished(children: List['DocumentsTreeNode']):
-            on_finished(children, has_more, document_count)
-
-        self._getFolders(folders_finished, on_error, storage)
-
     def _onResponseReceived(self,
                             reply: 'QNetworkReply',
-                            on_finished: Callable[[List['DocumentsTreeNode'], bool, int], None],
+                            on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
+                            request_body: Optional[str] = None,
                             **kwargs) -> None:
 
         data_json = bytes(reply.readAll()).decode()
@@ -111,6 +95,22 @@ class OnshapeApi(QObject):
                 elif json_type == 'document-summary':
                     element = Document(item)
 
+                elif json_type == 'document-summary-search':
+                    for search_hit in item['searchHits']:
+                        type = search_hit['type']
+
+                        if type == 'part':
+                            element = Part(search_hit)
+
+                        elif type == 'element':
+                            element = Tab(search_hit)
+
+                        elif type == 'folder':
+                            element = Folder(search_hit)
+
+                        elif type == 'document':
+                            element = Document(search_hit)
+
             elif 'type' in item:
                 type = item['type']
 
@@ -128,33 +128,52 @@ class OnshapeApi(QObject):
 
         url_load_next_page = data_json['next'] if 'next' in data_json else None
 
-        on_finished(nodes, url_load_next_page)
+        on_finished(nodes, url_load_next_page, request_body)
 
-    def _get(self,
-             url: QUrl,
-             on_finished: Callable[[List['DocumentsTreeNode'], Optional[str]], None],
-             on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
-             **kwargs) -> None:
+    def _call(self,
+              url: QUrl,
+              on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
+              on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
+              request_body: Optional[str] = None,
+              **kwargs) -> None:
 
-        Logger.debug(f"GET {url.toString()}")
-        self._http.get(url.toString(),
-                       scope = self._json_scope,
-                       callback = functools.partial(self._onResponseReceived, on_finished = on_finished, **kwargs),
-                       error_callback = on_error,
-                       timeout = self.DEFAULT_REQUEST_TIMEOUT)
+        if request_body is not None:
+            Logger.debug(f"POST {url.toString()}")
+            self._http.post(url.toString(),
+                            data = request_body.encode("utf-8"),
+                            scope = self._json_scope,
+                            callback = functools.partial(self._onResponseReceived, on_finished = on_finished, request_body = request_body),
+                            error_callback = on_error,
+                            timeout = OnshapeApi.DEFAULT_REQUEST_TIMEOUT)
+        else:
+            Logger.debug(f"GET {url.toString()}")
+            self._http.get(url.toString(),
+                           scope = self._json_scope,
+                           callback = functools.partial(self._onResponseReceived, on_finished = on_finished, **kwargs),
+                           error_callback = on_error,
+                           timeout = OnshapeApi.DEFAULT_REQUEST_TIMEOUT)
+
 
     def loadElements(self,
                      url: str,
-                     on_finished: Callable[[List['DocumentsTreeNode'], Optional[str]], None],
-                     on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+                     on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
+                     on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
+                     request_body: Optional[str] = None) -> None:
 
-        self._get(QUrl(url), on_finished, on_error)
+        self._call(QUrl(url), on_finished, on_error, request_body = request_body)
 
     def listStorages(self,
-                     on_finished: Callable[[List['DocumentsTreeNode'], Optional[str]], None],
+                     on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
 
-        self._get(QUrl(f'{self.API_ROOT}/globaltreenodes'), on_finished, on_error)
+        self._call(QUrl(f'{self.API_ROOT}/globaltreenodes'), on_finished, on_error)
+
+    def listDocuments(self,
+                      folder_id: str,
+                      on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
+                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+
+        self._call(QUrl(f'{self.API_ROOT}/globaltreenodes/folder/{folder_id}'), on_finished, on_error)
 
     def listWorkspaces(self,
                        document_id: str,
@@ -162,7 +181,7 @@ class OnshapeApi(QObject):
                        on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
         """Lists the available workspaces in the given document"""
 
-        self._get(QUrl(f'{self.API_ROOT}/documents/d/{document_id}/workspaces'), on_finished, on_error)
+        self._call(QUrl(f'{self.API_ROOT}/documents/d/{document_id}/workspaces'), on_finished, on_error)
 
     def listTabs(self,
                  document_id: str,
@@ -174,11 +193,10 @@ class OnshapeApi(QObject):
         url = QUrl(f'{self.API_ROOT}/documents/d/{document_id}/w/{workspace_id}/elements')
 
         query = QUrlQuery()
-        query.addQueryItem('withThumbnails', 'true')
         query.addQueryItem('elementType', 'PARTSTUDIO') # We can only get parts from PartStudios
         url.setQuery(query)
 
-        self._get(url, on_finished, on_error, document_id=document_id, workspace_id=workspace_id)
+        self._call(url, on_finished, on_error, document_id=document_id, workspace_id=workspace_id)
 
     def listParts(self,
                   document_id: str,
@@ -191,21 +209,25 @@ class OnshapeApi(QObject):
         url = QUrl(f'{self.API_ROOT}/parts/d/{document_id}/w/{workspace_id}/e/{tab_id}')
 
         query = QUrlQuery()
-        query.addQueryItem('withThumbnails', 'true')
         query.addQueryItem('includeFlatParts', 'false')
         url.setQuery(query)
 
-        self._get(url, on_finished, on_error, document_id=document_id, workspace_id=workspace_id, tab_id=tab_id)
+        self._call(url, on_finished, on_error, document_id=document_id, workspace_id=workspace_id, tab_id=tab_id)
 
     def loadThumbnail(self,
-                      thumbnail_url: str,
                       on_finished: Callable[['QByteArray'], None],
-                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
+                      document_id: str,
+                      workspace_id: Optional[str] = None,
+                      tab_id: Optional[str] = None,
+                      part_id: Optional[str] = None) -> None:
         """Loads the thumbnail image, to be found at the given URL"""
         def response_received(reply: 'QNetworkReply'):
             on_finished(reply.readAll())
 
-        self._http.get(thumbnail_url,
+        url = QUrl(f'{self.API_ROOT}/thumbnails/d/{document_id}{'/w/' + workspace_id if workspace_id is not None else ''}{'/e/' + tab_id if tab_id is not None else ''}{'/p/' + part_id if part_id is not None else ''}/s/{self.THUMBNAIL_SIZE}')
+
+        self._http.get(url,
                        scope = self._binary_scope,
                        callback = response_received,
                        error_callback = on_error,
@@ -261,22 +283,18 @@ class OnshapeApi(QObject):
     def search(self,
                parent_id: str,
                search_query: str,
-               on_finished: Callable[[List['DocumentsTreeNode'], Optional[str]], None],
+               on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
         """Retrieves a single page of the found documents in the user storage"""
 
         url = QUrl(f'{self.API_ROOT}/documents/search')
 
         request_body = {}
-        request_body["rawQuery"] = search_query
+        request_body["rawQuery"] = f'_all:{''.join(char for char in search_query if char.isalnum())} type:document,part,partstudio,folder'
         request_body["parentId"] = parent_id
         request_body["documentFilter"] = 0
+        request_body = json.dumps(request_body)
 
-        Logger.debug(f"Process search request {json.dumps(request_body)}")
+        Logger.debug(f"POST {url.toString()} {request_body}")
 
-        self._http.post(url.toString(),
-                        data = json.dumps(request_body).encode("utf-8"),
-                        scope = self._json_scope,
-                        callback = functools.partial(self._onListDocumentsFinished, on_finished=on_finished, on_error=on_error),
-                        error_callback = on_error,
-                        timeout = self.SEARCH_REQUEST_TIMEOUT)
+        self._call(url, on_finished, on_error, request_body = request_body)

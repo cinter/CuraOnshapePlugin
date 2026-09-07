@@ -29,6 +29,7 @@ class DocumentsModel(QAbstractListModel):
         self._search_model: Optional["DocumentsModel"] = None
         self._is_loading_next_page: bool = False
         self._url_load_next_page: Optional[str] = None
+        self._request_body: Optional[str] = None
 
         if self.loaded:
             self._updateItems()
@@ -120,9 +121,10 @@ class DocumentsModel(QAbstractListModel):
 
     @pyqtSlot()
     def load(self) -> None:
-        def on_finished(children: List["DocumentsTreeNode"], url_load_next_page: Optional[str]):
+        def on_finished(children: List["DocumentsTreeNode"], url_load_next_page: Optional[str], request_body: Optional[str]):
             self._node.setChildren(children)
             self._setUrlLoadNextPage(url_load_next_page)
+            self._request_body = request_body
             self.loadedChanged.emit()
             self._updateItems()
 
@@ -144,11 +146,12 @@ class DocumentsModel(QAbstractListModel):
 
         self._setIsLoadingNextPage(True)
 
-        def on_finished(new_children: List["DocumentsTreeNode"], url_load_next_page: Optional[str]):
+        def on_finished(new_children: List["DocumentsTreeNode"], url_load_next_page: Optional[str], request_body: Optional[str]):
             for child in new_children:
                 self._node.addChild(child)
 
             self._setUrlLoadNextPage(url_load_next_page)
+            self._request_body = request_body
             self._setIsLoadingNextPage(False)
             self._appendItems(new_children)
 
@@ -157,7 +160,7 @@ class DocumentsModel(QAbstractListModel):
             self._load_error = request.errorString() + bytes(request.readAll()).decode()
             self.errorChanged.emit()
 
-        self._api.loadElements(self._url_load_next_page, on_finished, on_error)
+        self._api.loadElements(self._url_load_next_page, on_finished, on_error, self._request_body)
 
     def clear(self) -> None:
         self.beginResetModel()
@@ -168,6 +171,7 @@ class DocumentsModel(QAbstractListModel):
 
         self._setUrlLoadNextPage(None)
         self._setIsLoadingNextPage(False)
+        self._request_body = None
 
         self._load_error = None
         self.errorChanged.emit()
