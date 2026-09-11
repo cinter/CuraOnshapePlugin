@@ -71,6 +71,7 @@ class BaseElement:
         self.is_searchable = is_searchable
 
     def setAsDefault(self):
+        """ Registers this element as being the default root element when opening the Onshape dialog """
         if not self.settable_as_default:
             raise RuntimeError('Element is not settable_as_default')
 
@@ -79,6 +80,12 @@ class BaseElement:
         Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage', json.dumps(element_data))
 
     def _storeDefaultData(self, element_data: Dict[str, Any]):
+        """
+        Method to be overridden by child clases to store extra data to be reloaded when the element is used as the default opened element
+
+        :param element_data: The dictionary in which the element data is stored. Extra keys are to be added, and will be given back when
+                             re-constructing the element later
+        """
         pass
 
     def loadChildren(self,
@@ -108,6 +115,15 @@ class BaseElement:
                      on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
         raise NotImplementedError(f"Element {self.__class__} does not implement the search method")
+        """
+        Starts a textual search into this element. This method has to be overridden if the is_searchable argument is given as True
+        in the constructor.
+
+        :param api The API object to be used to process the search
+        :param search_query The string to searched for
+        :param on_finished Callback function called on success. Receives (children, url_load_next_page, request_body).
+        :param on_error Callback function called on communication error
+        """
 
     def _loadChildren(self,
                       api: 'OnshapeApi',
@@ -126,4 +142,12 @@ class BaseElement:
                       api: 'OnshapeApi',
                       on_finished: Callable[['QByteArray'], None],
                       on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        """
+        Starts loading the remote thumbnail of this element. This method has to be overridden if the has_thumbnail argument is given as True
+        in the constructor.
+
+        :param api The API object to be used to process the search
+        :param on_finished Callback function called on success. Receives (thumbnail_data).
+        :param on_error Callback function called on communication error
+        """
         raise RuntimeError('Element declares having a thumbnail, so it should implement the loadThumbnail method')

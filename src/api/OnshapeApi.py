@@ -55,6 +55,14 @@ class OnshapeApi(QObject):
                             on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                             request_body: Optional[str] = None,
                             **kwargs) -> None:
+        """
+        Internal convenience that parses any request response and builds the matching elements list
+
+        :param reply The raw received reply that contains the request answer data
+        :param on_finished Callback function called on success. Receives (children, url_load_next_page, request_body).
+        :param request_body If the function was a POST request, this contains the body of the request that has been sent
+        :param kwargs Extra arguments to be given when constructing some specific elements
+        """
 
         data_json = bytes(reply.readAll()).decode()
         Logger.debug(str(data_json))
@@ -132,6 +140,7 @@ class OnshapeApi(QObject):
               on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
               request_body: Optional[str] = None,
               **kwargs) -> None:
+        """Internal convenience method to actually send a GET or POST request with the proper arguments"""
 
         if request_body is not None:
             Logger.debug(f"POST {url.toString()}")
@@ -155,12 +164,14 @@ class OnshapeApi(QObject):
                      on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
                      request_body: Optional[str] = None) -> None:
+        """Generic method to load a list of elements from a previously-retrieved URL"""
 
         self._call(QUrl(url), on_finished, on_error, request_body = request_body)
 
     def listStorages(self,
                      on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                      on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        """Lists the available root storages"""
 
         self._call(QUrl(f'{self.API_ROOT}/globaltreenodes'), on_finished, on_error)
 
@@ -168,6 +179,7 @@ class OnshapeApi(QObject):
                       folder_id: str,
                       on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                       on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        """Lists the available documents in the given folder"""
 
         self._call(QUrl(f'{self.API_ROOT}/globaltreenodes/folder/{folder_id}'), on_finished, on_error)
 
@@ -217,7 +229,7 @@ class OnshapeApi(QObject):
                       workspace_id: Optional[str] = None,
                       tab_id: Optional[str] = None,
                       part_id: Optional[str] = None) -> None:
-        """Loads the thumbnail image, to be found at the given URL"""
+        """Loads the thumbnail image of an element"""
         def response_received(reply: 'QNetworkReply'):
             on_finished(reply.readAll())
 
@@ -283,7 +295,17 @@ class OnshapeApi(QObject):
                folder_id: Optional[str] = None,
                document_filter: int = 0,
                owner_id: Optional[str] = None) -> None:
-        """Retrieves a single page of the found documents in the user storage"""
+        """
+        Processes a textual search, given the current root path
+
+        :param search_query The text to be looked for. Note that all non-alphanumeric characters will be filtered out to avoid injection.
+        :param on_finished Callback function called on success. Receives (children, url_load_next_page, request_body).
+        :param on_error Callback function called on communication error
+        :param folder_id Optional folder ID argument to be inserted when looking inside a specific folder
+        :param document_filter Optional document filter that indicates the origin of the expected results.
+                               See https://cad.onshape.com/glassworks/explorer/#/Document/getDocuments
+        :param owner_id When using a document_filter that requires an owner id, this specifies the ID of the owner in which to look for
+        """
 
         url = QUrl(f'{self.API_ROOT}/documents/search')
 
