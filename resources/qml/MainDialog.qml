@@ -53,7 +53,9 @@ Window
 
             SearchBar
             {
+                id: searchBar
                 Layout.fillWidth: true
+                enabled: documentsListStack.currentItem.documentsModel.isSearchable
             }
 
             StackView

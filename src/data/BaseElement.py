@@ -1,6 +1,8 @@
 # Copyright (c) 2023 Erwan MATHIEU
 
 import re
+import json
+
 from typing import TYPE_CHECKING, Optional, Callable, List, Dict, Any
 
 from datetime import datetime
@@ -36,7 +38,8 @@ class BaseElement:
                  is_downloadable: bool = False,
                  allow_single_child_shortcut: bool = False,
                  settable_as_default: bool = False,
-                 has_thumbnail: bool = False):
+                 has_thumbnail: bool = False,
+                 is_searchable = False):
         """
         Base constructor
 
@@ -65,13 +68,18 @@ class BaseElement:
         self.is_downloadable: bool = is_downloadable
         self.settable_as_default = settable_as_default
         self._allow_single_child_shortcut: bool = allow_single_child_shortcut
+        self.is_searchable = is_searchable
 
     def setAsDefault(self):
         if not self.settable_as_default:
             raise RuntimeError('Element is not settable_as_default')
 
-        Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage_name', self.name)
-        Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage_url', self.children_url)
+        element_data = { 'id': self.id, 'name':  self.name, 'href': self.children_url, 'type': type(self).__name__ }
+        self._storeDefaultData(element_data)
+        Application.getInstance().getPreferences().setValue('plugin_onshape/default_storage', json.dumps(element_data))
+
+    def _storeDefaultData(self, element_data: Dict[str, Any]):
+        pass
 
     def loadChildren(self,
                      api: 'OnshapeApi',
@@ -93,6 +101,13 @@ class BaseElement:
         self._loadChildren(api,
                            shortcut_callback if self._allow_single_child_shortcut else on_finished,
                            on_error)
+
+    def searchInside(self,
+                     api: 'OnshapeApi',
+                     search_query: str,
+                     on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
+                     on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        raise NotImplementedError(f"Element {self.__class__} does not implement the search method")
 
     def _loadChildren(self,
                       api: 'OnshapeApi',

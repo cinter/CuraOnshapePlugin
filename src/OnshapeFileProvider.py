@@ -43,8 +43,7 @@ class OnshapeFileProvider(FileProvider):
             Logger.warning("OnShape Plugin translation not loaded")
 
         application.getPreferences().addPreference("plugin_onshape/tesselation_resolution", "moderate")
-        application.getPreferences().addPreference("plugin_onshape/default_storage_name", "")
-        application.getPreferences().addPreference("plugin_onshape/default_storage_url", "")
+        application.getPreferences().addPreference("plugin_onshape/default_storage", "")
 
         self._application: "CuraApplication" = application
         self._auth_controller: OAuthController = OAuthController(self._application)

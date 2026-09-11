@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, List, Optional
 
 from PyQt6.QtCore import pyqtProperty, pyqtSignal, pyqtSlot, QObject, QAbstractListModel, QModelIndex, Qt
 
+from UM.Logger import Logger
 from ..data.DocumentsTreeNode import DocumentsTreeNode
-from ..data.Root import Root
 from ..data.SearchResult import SearchResult
 
 if TYPE_CHECKING:
@@ -177,9 +177,6 @@ class DocumentsModel(QAbstractListModel):
         self.errorChanged.emit()
         self.loadedChanged.emit()
 
-        if isinstance(self._node.element, Root):
-            self._api.clearFolderCache()
-
     @pyqtSlot()
     def refresh(self) -> None:
         self.clear()
@@ -191,7 +188,20 @@ class DocumentsModel(QAbstractListModel):
     def selectedItems(self) -> List["DocumentsItem"]:
         return [item for item in self._items if item.selected]
 
+    @pyqtSlot(result = bool)
+    def isSearchModel(self) -> bool:
+        return isinstance(self._node.element, SearchResult)
+
     @pyqtSlot(str, result = QObject)
     def searchModel(self, search_query: str) -> "DocumentsModel":
-        self._search_model = DocumentsModel(DocumentsTreeNode(SearchResult(search_query, self._node.getId())), self._api, self._path)
+        self._search_model = DocumentsModel(DocumentsTreeNode(SearchResult(search_query, self._node.element)), self._api, self._path)
         return self._search_model
+
+    @pyqtSlot(str)
+    def newSearch(self, search_query: str) -> None:
+        self._node.element.search_query = search_query
+        self.refresh()
+
+    @pyqtProperty(bool, constant = True)
+    def isSearchable(self) -> bool:
+        return self._node.element.is_searchable

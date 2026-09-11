@@ -18,10 +18,18 @@ class Folder(BaseElement):
     def __init__(self, data: Dict[str, Any]):
         super().__init__(data,
                          id = data['folderId'] if 'folderId' in data else None,
-                         icon = QtApplication.getInstance().getTheme().getIcon('Folder', 'medium').toString())
+                         icon = QtApplication.getInstance().getTheme().getIcon('Folder', 'medium').toString(),
+                         is_searchable = True)
 
     def _loadChildren(self,
                       api: 'OnshapeApi',
                       on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                       on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]):
         api.listDocuments(self.id, on_finished, on_error)
+
+    def searchInside(self,
+                     api: 'OnshapeApi',
+                     search_query: str,
+                     on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
+                     on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+        api.search(search_query, on_finished, on_error, folder_id = self.id)

@@ -25,7 +25,7 @@ Item
         anchors.top: parent.top
         anchors.margins: UM.Theme.getSize("default_margin").width
         leftPadding: searchIcon.width + UM.Theme.getSize("default_margin").width * 2
-        placeholderText: catalog.i18nc("@textfield:placeholder", "Search")
+        placeholderText: root.enabled ? catalog.i18nc("@textfield:placeholder", "Search") : catalog.i18nc("@textfield:placeholder", "Unable to search here")
         font: UM.Theme.getFont("default_italic")
 
         UM.ColorImage
@@ -44,7 +44,7 @@ Item
             color: UM.Theme.getColor("text")
         }
 
-        Keys.onEscapePressed: filter.text = ""
+        Keys.onEscapePressed: root.clearSearch()
 
         onAccepted: root.doSearch()
     }
@@ -65,19 +65,35 @@ Item
         color: UM.Theme.getColor("setting_control_button")
         hoverColor: UM.Theme.getColor("setting_control_button_hover")
 
-        onClicked:
+        onClicked: root.clearSearch()
+    }
+
+    function clear()
+    {
+        filter.text = "";
+    }
+
+    function clearSearch()
+    {
+        clear();
+        filter.forceActiveFocus();
+
+        if(documentsListStack.currentItem.documentsModel.isSearchModel())
         {
-            filter.text = ""
-            filter.forceActiveFocus()
+            documentsListStack.pop();
         }
     }
 
     function doSearch()
     {
-        console.debug("Search " + filter.text + " " + documentsListStack.currentItem.documentsModel)
-
-        var search_model = documentsListStack.currentItem.documentsModel.searchModel(filter.text)
-        console.debug(search_model)
-        documentsListStack.push("DocumentsView.qml", {"documentsModel": search_model})
+        if(documentsListStack.currentItem.documentsModel.isSearchModel())
+        {
+            documentsListStack.currentItem.documentsModel.newSearch(filter.text);
+        }
+        else
+        {
+            var search_model = documentsListStack.currentItem.documentsModel.searchModel(filter.text);
+            documentsListStack.push("DocumentsView.qml", {"documentsModel": search_model});
+        }
     }
 }

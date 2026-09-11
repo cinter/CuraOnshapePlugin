@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List, Dict
 import os
 import math
 import functools
+import json
 
 from PyQt6.QtCore import pyqtSignal, QObject, pyqtSlot, pyqtProperty, QUrl
 
@@ -13,8 +14,8 @@ from cura.UI.PrintInformation import PrintInformation
 from UM.Message import Message
 
 from .model.DocumentsModel import DocumentsModel
+from . import data as data_module
 from .data.Root import Root
-from .data.Storage import Storage
 from .data.DocumentsTreeNode import DocumentsTreeNode
 
 if TYPE_CHECKING:
@@ -37,15 +38,17 @@ class OnshapeController(QObject):
         self._parts_names: Dict[str, str] = {}
 
         application = CuraApplication.getInstance()
-        default_storage_name = application.getPreferences().getValue('plugin_onshape/default_storage_name')
-        default_storage_url = application.getPreferences().getValue('plugin_onshape/default_storage_url')
 
         root_node = DocumentsTreeNode(Root())
         self._root_documents_model: DocumentsModel = DocumentsModel(root_node, self._api, [])
         self._default_documents_model: DocumentsModel = self._root_documents_model
 
-        if default_storage_name != '' and default_storage_url != '':
-            default_storage_node = DocumentsTreeNode(Storage({'name': default_storage_name, 'href': default_storage_url}))
+        default_storage = application.getPreferences().getValue('plugin_onshape/default_storage')
+        if default_storage != '':
+            storage_data = json.loads(default_storage)
+            default_storage_type = storage_data["type"]
+            element_class = getattr(getattr(data_module, default_storage_type), default_storage_type)
+            default_storage_node = DocumentsTreeNode(element_class(storage_data))
             self._default_documents_model = DocumentsModel(default_storage_node, self._api, [''])
             root_node.addChild(default_storage_node)
             root_node.children_loaded = False

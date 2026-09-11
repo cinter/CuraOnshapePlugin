@@ -44,16 +44,11 @@ class OnshapeApi(QObject):
         self._auth_scope: 'ApiAuthScope' = ApiAuthScope()
         self._json_scope: 'JsonDecoratorScope' = JsonDecoratorScope(self._auth_scope)
         self._binary_scope: 'AcceptBinaryDataScope' = AcceptBinaryDataScope(self._auth_scope)
-        self._folder_cache: Dict[str, Dict] = {}
 
     @pyqtSlot(str)
     def setToken(self, token: str) -> None:
         """Sets the authentication token, which is required to make API calls"""
         self._auth_scope.setToken(token)
-
-    def clearFolderCache(self) -> None:
-        """Clears the folder cache; should be called when the document list is refreshed"""
-        self._folder_cache.clear()
 
     def _onResponseReceived(self,
                             reply: 'QNetworkReply',
@@ -73,58 +68,59 @@ class OnshapeApi(QObject):
         else:
             items = data_json
 
+        elements = []
         for item in items:
             # Identify the type of element based on the item data
-            element = None
             if 'jsonType' in item:
                 json_type = item['jsonType']
 
                 if json_type == 'resource-owner':
                     resource_type = item['resourceType']
                     if resource_type == 'resourcecompanyowner':
-                        element = ResourceCompanyOwner(item)
+                        elements.append(ResourceCompanyOwner(item))
                     elif resource_type == 'resourceuserowner':
-                        element = ResourceUserOwner(item)
+                        elements.append(ResourceUserOwner(item))
 
                 elif json_type == 'magic' and item['subType'] in [2, 12]: # Other types are not relevant
-                    element = Storage(item)
+                    elements.append(Storage(item))
 
                 elif json_type == 'folder':
-                    element = Folder(item)
+                    elements.append(Folder(item))
 
                 elif json_type == 'document-summary':
-                    element = Document(item)
+                    elements.append(Document(item))
 
                 elif json_type == 'document-summary-search':
                     for search_hit in item['searchHits']:
                         type = search_hit['type']
+                        Logger.debug(type)
 
                         if type == 'part':
-                            element = Part(search_hit)
+                            elements.append(Part(search_hit))
 
                         elif type == 'element':
-                            element = Tab(search_hit)
+                            elements.append(Tab(search_hit))
 
                         elif type == 'folder':
-                            element = Folder(search_hit)
+                            elements.append(Folder(search_hit))
 
                         elif type == 'document':
-                            element = Document(search_hit)
+                            elements.append(Document(search_hit))
 
             elif 'type' in item:
                 type = item['type']
 
                 if type == 'workspace':
-                    element = Workspace(item)
+                    elements.append(Workspace(item))
 
                 elif type == 'Part Studio':
-                    element = Tab(item, **kwargs)
+                    elements.append(Tab(item, **kwargs))
 
             elif 'partId' in item:
-                element = Part(item, **kwargs)
+                elements.append(Part(item, **kwargs))
 
-            if element:
-                nodes.append(DocumentsTreeNode(element))
+        for element in elements:
+            nodes.append(DocumentsTreeNode(element))
 
         url_load_next_page = data_json['next'] if 'next' in data_json else None
 
@@ -281,20 +277,30 @@ class OnshapeApi(QObject):
                        timeout = self.DOWNLOAD_REQUEST_TIMEOUT)
 
     def search(self,
-               parent_id: str,
                search_query: str,
                on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
-               on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
+               on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None],
+               folder_id: Optional[str] = None,
+               document_filter: int = 0,
+               owner_id: Optional[str] = None) -> None:
         """Retrieves a single page of the found documents in the user storage"""
 
         url = QUrl(f'{self.API_ROOT}/documents/search')
 
         request_body = {}
-        request_body["rawQuery"] = f'_all:{''.join(char for char in search_query if char.isalnum())} type:document,part,partstudio,folder'
-        request_body["parentId"] = parent_id
-        request_body["documentFilter"] = 0
-        request_body = json.dumps(request_body)
 
-        Logger.debug(f"POST {url.toString()} {request_body}")
+        raw_query = []
+        raw_query.append(f'_all:{''.join(char for char in search_query if char.isalnum())}')
+
+        if folder_id is not None:
+            raw_query.append(f'ancestorFolder:{folder_id}')
+
+        if owner_id is not None:
+            request_body["ownerId"] = owner_id
+
+        request_body["rawQuery"] = ' '.join(raw_query)
+        request_body["documentFilter"] = document_filter
+        request_body["type"] = 'string'
+        request_body = json.dumps(request_body)
 
         self._call(url, on_finished, on_error, request_body = request_body)

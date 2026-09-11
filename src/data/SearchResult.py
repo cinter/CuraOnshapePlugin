@@ -15,14 +15,13 @@ if TYPE_CHECKING:
 class SearchResult(BaseElement):
     """Pseudo-element which represents all the elements returned by a search query"""
 
-    def __init__(self, search_query: str, parent_id: str):
-        super().__init__(data = None, name = i18nCatalog("onshape").i18nc("@label:text", "Search result"))
-        self._search_query: str = search_query
-        self._parent_id: str = parent_id
+    def __init__(self, search_query: str, parent_element: BaseElement):
+        super().__init__(data = None, name = i18nCatalog("onshape").i18nc("@label:text", "Search result"), is_searchable = True)
+        self.search_query: str = search_query
+        self._parent_element: BaseElement = parent_element
 
     def _loadChildren(self,
                       api: 'OnshapeApi',
                       on_finished: Callable[[List['DocumentsTreeNode'], Optional[str], Optional[str]], None],
                       on_error: Callable[['QNetworkReply', 'QNetworkReply.NetworkError'], None]) -> None:
-        print("go search !!!", self._parent_id, self._search_query)
-        api.search(self._parent_id, self._search_query, on_finished, on_error)
+        self._parent_element.searchInside(api, self.search_query, on_finished, on_error)
