@@ -78,8 +78,28 @@ Item
 
                         Cura.ComboBox
                         {
-                            Layout.fillWidth: true
-                            Layout.maximumWidth: 280
+                            id: configurationComboBox
+                            Layout.preferredHeight: UM.Theme.getSize("setting_control").height
+                            Layout.preferredWidth:
+                            {
+                                var textWidth = 0
+                                for (var optionIndex = 0; optionIndex < modelData.options.length; optionIndex++)
+                                {
+                                    textWidth = Math.max(textWidth, optionFontMetrics.advanceWidth(modelData.options[optionIndex].name))
+                                }
+
+                                var margins = configurationComboBox.contentLeftPadding +
+                                              2 * UM.Theme.getSize("default_margin").width +
+                                              UM.Theme.getSize("standard_arrow").width
+                                return Math.min(280, Math.max(150, textWidth + margins))
+                            }
+
+                            FontMetrics
+                            {
+                                id: optionFontMetrics
+                                font: configurationComboBox.textFont
+                            }
+
                             model: modelData.options
                             textRole: "name"
                             currentIndex: modelData.selectedIndex
